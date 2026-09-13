@@ -37,9 +37,6 @@ public class IngestionServiceApp {
         return new ArrayList<>(byId.values());
     }
 
-    private static void mergeInto(Map<String, WardRecord> byId, Object o) {
-    }
-
     private static WardRecord cleanRow(String[] row) {
         String wardId = normalizeWhitespace(row[0]).toUpperCase();
         String wing = titleCase(normalizeWhitespace(row[1]));
@@ -66,6 +63,20 @@ public class IngestionServiceApp {
             }
         }
         return new WardRecord(wardId, wing, department, beds, note);
+    }
+
+    private static void mergeInto(Map<String, WardRecord> byId, WardRecord incoming) {
+        WardRecord existing = byId.get(incoming.getWardId());
+        if (existing == null) {
+            byId.put(incoming.getWardId(), incoming);
+            return;
+        }
+        WardRecord keep = (existing.getBedsAvailable() != null) ? existing : incoming;
+        String mergedNote = "merged duplicate record for " + incoming.getWardId();
+        if (keep.getNotes() != null) mergedNote = keep.getNotes() + "; " + mergedNote;
+
+        byId.put(incoming.getWardId(), new WardRecord(
+                keep.getWardId(), keep.getWing(), keep.getDepartment(), keep.getBedsAvailable(), mergedNote));
     }
 
     private static String normalizeWhitespace(String s) {
