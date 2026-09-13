@@ -44,4 +44,18 @@ public class IngestionServiceApp {
         return null;
     }
 
+    private static String normalizeWhitespace(String s) {
+        return s == null ? "" : s.trim().replaceAll("\\s+", " ");
+    }
+
+    private static String titleCase(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (String w : s.split(" ")) {
+            if (w.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1).toLowerCase());
+        }
+        return sb.toString();
+    }
+
 }
