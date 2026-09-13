@@ -40,8 +40,32 @@ public class IngestionServiceApp {
     private static void mergeInto(Map<String, WardRecord> byId, Object o) {
     }
 
-    private static Object cleanRow(String[] row) {
-        return null;
+    private static WardRecord cleanRow(String[] row) {
+        String wardId = normalizeWhitespace(row[0]).toUpperCase();
+        String wing = titleCase(normalizeWhitespace(row[1]));
+        String department = normalizeDepartment(normalizeWhitespace(row[2]));
+
+        String rawBeds = normalizeWhitespace(row[3]);
+        String lower = rawBeds.toLowerCase();
+        Integer beds = null;
+        String note = null;
+
+        if (rawBeds.isEmpty() || lower.equals("n/a") || lower.equals("tbd")
+                || lower.equals("unknown") || rawBeds.equals("-") || lower.equals("nan")) {
+            note = "bedsAvailable missing ('" + rawBeds + "') — flagged for follow-up";
+        } else {
+            try {
+                int value = Integer.parseInt(rawBeds);
+                if (value < 0 || value > 200) {
+                    note = "bedsAvailable out of realistic range ('" + rawBeds + "') — flagged for follow-up";
+                } else {
+                    beds = value;
+                }
+            } catch (NumberFormatException e) {
+                note = "bedsAvailable was non-numeric ('" + rawBeds + "') — flagged for follow-up";
+            }
+        }
+        return new WardRecord(wardId, wing, department, beds, note);
     }
 
     private static String normalizeWhitespace(String s) {
@@ -56,6 +80,11 @@ public class IngestionServiceApp {
             sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1).toLowerCase());
         }
         return sb.toString();
+    }
+
+    private static String normalizeDepartment(String s) {
+        String titled = titleCase(s);
+        return titled.equalsIgnoreCase("Pediatrics") ? "Paediatrics" : titled;
     }
 
 }
