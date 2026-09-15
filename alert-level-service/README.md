@@ -33,12 +33,23 @@ java -jar target/alert-level-service.jar
 
 Listens on port `7032`.
 
+## Endpoints
+
+- `GET /alert-level` — current Emergency Status, `{ "level": 0-8 }`. Starts at `0`.
+- `POST /alert-level` — set the status, body `{ "level": <int> }`. `400` if
+  `level` is missing, non-integer, or outside `0-8`.
+
 ## Test
 
 No automated tests yet. Manually verify it's up:
 
 ```
-curl http://localhost:7032/health   # -> OK
+curl http://localhost:7032/health                                                   # -> OK
+curl http://localhost:7032/alert-level                                              # -> {"level":0}
+curl -X POST -H "Content-Type: application/json" -d '{"level":5}' \
+  http://localhost:7032/alert-level                                                 # -> {"level":5}
+curl -X POST -H "Content-Type: application/json" -d '{"level":42}' \
+  http://localhost:7032/alert-level                                                 # -> 400
 ```
 
 To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
