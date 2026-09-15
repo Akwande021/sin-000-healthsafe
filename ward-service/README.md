@@ -36,12 +36,23 @@ java -jar target/ward-service.jar
 
 Listens on port `7031`.
 
+## Endpoints
+
+- `GET /wards` — full list of cleaned ward records, sourced from `ingestion-service`
+  at startup (and re-fetched lazily if the cache is empty, e.g. ingestion-service
+  wasn't up yet).
+- `GET /wards/{id}` — a single ward by ID (case-insensitive), `404` if unknown.
+- `GET /departments` — sorted list of distinct department names.
+
 ## Test
 
-No automated tests yet. Manually verify it's up:
+No automated tests yet. Manually verify it's up (start `ingestion-service` first):
 
 ```
-curl http://localhost:7031/health   # -> OK
+curl http://localhost:7031/health       # -> OK
+curl http://localhost:7031/wards        # -> cleaned ward records
+curl http://localhost:7031/wards/W-01   # -> single record, or 404 if unknown
+curl http://localhost:7031/departments  # -> distinct department names
 ```
 
 To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
