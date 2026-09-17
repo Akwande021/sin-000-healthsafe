@@ -94,6 +94,7 @@ public class IngestionServiceApp {
     }
 
     private static String normalizeDepartment(String s) {
+        if (s.equalsIgnoreCase("ICU")) return "ICU";
         String titled = titleCase(s);
         return titled.equalsIgnoreCase("Pediatrics") ? "Paediatrics" : titled;
     }
