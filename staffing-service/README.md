@@ -51,15 +51,25 @@ Listens on port `7033`.
   3-5, 3 at 6-8. The doctor names themselves are an invented sample roster —
   there's no doctor data source anywhere else in this repo.
 
+- `POST /on-call/{wardId}` — same computation as the `GET`, plus broadcasts the
+  resulting schedule as the "schedule/status change" event on
+  `staffing-events-topic` (see [`../common/`](../common)) for `ward-service` to
+  react to. Adds `"broadcast": true|false` to the response; a broker/consumer
+  hiccup is reported there rather than failing the request — a topic is
+  fire-and-forget by design, unlike the guaranteed-delivery queue in
+  [`../equipment-alert-service`](../equipment-alert-service).
+
 ## Test
 
 No automated tests yet. Manually verify it's up (start `ingestion-service`,
-`ward-service`, and `alert-level-service` first):
+`ward-service`, and `alert-level-service` first; `cd ../common && docker compose
+up -d` for the broadcast to actually reach `ward-service`):
 
 ```
 curl http://localhost:7033/health              # -> OK
 curl http://localhost:7033/on-call/W-01        # -> on-call doctors for W-01
 curl http://localhost:7033/on-call/unknown-id  # -> 404
+curl -X POST http://localhost:7033/on-call/W-01  # -> same, plus "broadcast":true
 ```
 
 To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
