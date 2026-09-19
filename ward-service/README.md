@@ -43,16 +43,27 @@ Listens on port `7031`.
   wasn't up yet).
 - `GET /wards/{id}` — a single ward by ID (case-insensitive), `404` if unknown.
 - `GET /departments` — sorted list of distinct department names.
+- `GET /wards/{id}/staffing` — the most recent on-call schedule broadcast for
+  that ward, received asynchronously from `staffing-service` over
+  `staffing-events-topic` (see [`../common/`](../common)) rather than polling it
+  directly. `404` if no broadcast has been received yet for that ward.
+
+Subscribes to the topic over a `failover:` transport, so a broker that isn't up
+yet (or drops briefly) doesn't stop this service from starting or serving the
+REST endpoints above — it just keeps retrying in the background.
 
 ## Test
 
-No automated tests yet. Manually verify it's up (start `ingestion-service` first):
+No automated tests yet. Manually verify it's up (start `ingestion-service` first;
+`cd ../common && docker compose up -d` for the broker, then `POST
+http://localhost:7033/on-call/W-01` on `staffing-service` to trigger a broadcast):
 
 ```
-curl http://localhost:7031/health       # -> OK
-curl http://localhost:7031/wards        # -> cleaned ward records
-curl http://localhost:7031/wards/W-01   # -> single record, or 404 if unknown
-curl http://localhost:7031/departments  # -> distinct department names
+curl http://localhost:7031/health              # -> OK
+curl http://localhost:7031/wards               # -> cleaned ward records
+curl http://localhost:7031/wards/W-01          # -> single record, or 404 if unknown
+curl http://localhost:7031/departments         # -> distinct department names
+curl http://localhost:7031/wards/W-01/staffing # -> 404 until staffing-service broadcasts one
 ```
 
 To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under

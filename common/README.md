@@ -57,8 +57,9 @@ Once the TODOs below are implemented, verify end-to-end by publishing a message 
 `staffing-service` and confirming the consumer(s) receive it — e.g. via logs, or by
 watching the topic in the web console.
 
-## TODO
+## Status
 
-- Add `activemq-client` publish logic to `staffing-service` on its stage/state-change endpoint.
-- Add `activemq-client` subscriber logic to consumer service(s) above, replacing any
-  direct synchronous calls to `staffing-service`.
+Implemented: `staffing-service`'s `POST /on-call/{wardId}` publishes the computed
+schedule to this topic; `ward-service` subscribes at startup and serves the latest
+broadcast per ward via `GET /wards/{id}/staffing`, instead of polling
+`staffing-service` directly. See each service's README for details.

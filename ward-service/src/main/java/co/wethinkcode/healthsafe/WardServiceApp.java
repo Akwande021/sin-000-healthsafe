@@ -1,9 +1,16 @@
 package co.wethinkcode.healthsafe;
 
+import co.wethinkcode.healthsafe.mq.MqConfig;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.javalin.Javalin;
 import io.javalin.http.HttpStatus;
+import org.apache.activemq.ActiveMQConnectionFactory;
 
+import javax.jms.Connection;
+import javax.jms.Session;
+import javax.jms.TextMessage;
+import javax.jms.Topic;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -11,6 +18,7 @@ import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class WardServiceApp {
@@ -20,8 +28,12 @@ public class WardServiceApp {
     private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final AtomicReference<List<Ward>> cache = new AtomicReference<>(List.of());
 
+    // Latest staffing-events-topic broadcast per ward, keyed by uppercased wardId.
+    private static final Map<String, JsonNode> staffingUpdates = new ConcurrentHashMap<>();
+
     public static void main(String[] args) {
         refreshWards();
+        subscribeToStaffingUpdates();
 
         Javalin app = Javalin.create().start(7031);
 
@@ -48,8 +60,42 @@ public class WardServiceApp {
             ctx.json(departments);
         });
 
-        // MQ TODO: subscribes to ActiveMQ topic MqConfig.TOPIC at MqConfig.BROKER_URL (see co.wethinkcode.healthsafe.mq.MqConfig)
+        // Reacts to staffing-service's broadcasts on staffing-events-topic instead of
+        // polling staffing-service directly — see subscribeToStaffingUpdates().
+        app.get("/wards/{id}/staffing", ctx -> {
+            String id = ctx.pathParam("id").trim().toUpperCase();
+            JsonNode update = staffingUpdates.get(id);
+            if (update == null) {
+                ctx.status(HttpStatus.NOT_FOUND).json(Map.of("error", "no staffing update received yet for ward: " + id));
+            } else {
+                ctx.json(update);
+            }
+        });
+
         // MQ TODO: publishes to ActiveMQ queue MqConfig.QUEUE when it detects an equipment failure on one of its wards.
+    }
+
+    // failover: keeps retrying in the background instead of throwing if the broker
+    // isn't up yet, so a slow/late broker doesn't stop this service from starting.
+    private static void subscribeToStaffingUpdates() {
+        try {
+            Connection connection = new ActiveMQConnectionFactory("failover:(" + MqConfig.BROKER_URL + ")").createConnection();
+            connection.start();
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            Topic topic = session.createTopic(MqConfig.TOPIC);
+            session.createConsumer(topic).setMessageListener(message -> {
+                try {
+                    JsonNode update = MAPPER.readTree(((TextMessage) message).getText());
+                    String wardId = update.get("wardId").asText().toUpperCase();
+                    staffingUpdates.put(wardId, update);
+                    System.out.println("Received staffing update for ward " + wardId);
+                } catch (Exception e) {
+                    System.err.println("Failed to process staffing update: " + e.getMessage());
+                }
+            });
+        } catch (Exception e) {
+            System.err.println("Failed to subscribe to " + MqConfig.TOPIC + ": " + e.getMessage());
+        }
     }
 
     private static List<Ward> wardsOrRefresh() {
