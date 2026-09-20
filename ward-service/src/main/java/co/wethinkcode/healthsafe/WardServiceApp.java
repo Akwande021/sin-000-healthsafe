@@ -8,6 +8,9 @@ import io.javalin.http.HttpStatus;
 import org.apache.activemq.ActiveMQConnectionFactory;
 
 import javax.jms.Connection;
+import javax.jms.DeliveryMode;
+import javax.jms.MessageProducer;
+import javax.jms.Queue;
 import javax.jms.Session;
 import javax.jms.TextMessage;
 import javax.jms.Topic;
@@ -15,6 +18,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
@@ -42,13 +47,9 @@ public class WardServiceApp {
         app.get("/wards", ctx -> ctx.json(wardsOrRefresh()));
 
         app.get("/wards/{id}", ctx -> {
-            String id = ctx.pathParam("id").trim();
-            Ward match = wardsOrRefresh().stream()
-                    .filter(w -> w.wardId().equalsIgnoreCase(id))
-                    .findFirst()
-                    .orElse(null);
+            Ward match = findWard(ctx.pathParam("id"));
             if (match == null) {
-                ctx.status(HttpStatus.NOT_FOUND).json(Map.of("error", "unknown ward: " + id));
+                ctx.status(HttpStatus.NOT_FOUND).json(Map.of("error", "unknown ward: " + ctx.pathParam("id")));
             } else {
                 ctx.json(match);
             }
@@ -72,7 +73,68 @@ public class WardServiceApp {
             }
         });
 
-        // MQ TODO: publishes to ActiveMQ queue MqConfig.QUEUE when it detects an equipment failure on one of its wards.
+        // Reports an equipment failure on a ward. There's no equipment/sensor data
+        // source anywhere in this repo, so this is a manual trigger standing in for
+        // "detecting" one. Delivery is guaranteed via a persistent queue message
+        // (see publishEquipmentFailure) — unlike the topic broadcast above, a publish
+        // failure here is a real failure of the guarantee, so it's a 502, not a soft flag.
+        app.post("/wards/{id}/equipment-failure", ctx -> {
+            Ward ward = findWard(ctx.pathParam("id"));
+            if (ward == null) {
+                ctx.status(HttpStatus.NOT_FOUND).json(Map.of("error", "unknown ward: " + ctx.pathParam("id")));
+                return;
+            }
+
+            String equipment = "unspecified equipment";
+            String description = null;
+            try {
+                JsonNode body = ctx.body().isBlank() ? null : MAPPER.readTree(ctx.body());
+                if (body != null && body.hasNonNull("equipment")) equipment = body.get("equipment").asText();
+                if (body != null && body.hasNonNull("description")) description = body.get("description").asText();
+            } catch (Exception ignored) {
+                // malformed body just falls back to the defaults above
+            }
+
+            Map<String, Object> alert = new LinkedHashMap<>();
+            alert.put("wardId", ward.wardId());
+            alert.put("department", ward.department());
+            alert.put("equipment", equipment);
+            alert.put("description", description);
+            alert.put("reportedAt", Instant.now().toString());
+
+            if (publishEquipmentFailure(alert)) {
+                ctx.status(HttpStatus.ACCEPTED).json(alert);
+            } else {
+                ctx.status(HttpStatus.BAD_GATEWAY).json(Map.of("error", "could not deliver equipment failure alert: broker unavailable"));
+            }
+        });
+    }
+
+    private static Ward findWard(String id) {
+        String trimmed = id.trim();
+        return wardsOrRefresh().stream()
+                .filter(w -> w.wardId().equalsIgnoreCase(trimmed))
+                .findFirst()
+                .orElse(null);
+    }
+
+    // Persistent delivery mode + a short-lived connection per publish: the queue
+    // guarantees the message survives a broker restart and reaches exactly one
+    // consumer, even if equipment-alert-service is briefly down when this fires.
+    private static boolean publishEquipmentFailure(Map<String, Object> alert) {
+        String url = "failover:(" + MqConfig.BROKER_URL + ")";
+        try (Connection connection = new ActiveMQConnectionFactory(url).createConnection()) {
+            connection.start();
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            Queue queue = session.createQueue(MqConfig.QUEUE);
+            MessageProducer producer = session.createProducer(queue);
+            producer.setDeliveryMode(DeliveryMode.PERSISTENT);
+            producer.send(session.createTextMessage(MAPPER.writeValueAsString(alert)));
+            return true;
+        } catch (Exception e) {
+            System.err.println("Failed to publish equipment failure to " + MqConfig.QUEUE + ": " + e.getMessage());
+            return false;
+        }
     }
 
     // failover: keeps retrying in the background instead of throwing if the broker
