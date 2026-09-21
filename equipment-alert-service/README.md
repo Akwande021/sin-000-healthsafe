@@ -50,12 +50,29 @@ java -jar target/equipment-alert-service.jar
 
 Listens on port `7034`.
 
+## Endpoints
+
+- `GET /alerts` — all equipment failure alerts received and acknowledged so far
+  (for manually verifying delivery; not part of the guaranteed-delivery
+  mechanism itself).
+
+## Guaranteed delivery
+
+The consumer uses `Session.CLIENT_ACKNOWLEDGE` rather than auto-ack: a message
+is only acknowledged after it's durably recorded in `/alerts`. If processing
+throws first, the message is left unacknowledged and ActiveMQ redelivers it —
+combined with `ward-service` publishing with `DeliveryMode.PERSISTENT`, a
+message survives both a broker restart and this service being briefly down.
+Verified manually: publish a failure via `ward-service` while this service is
+stopped, then start it — the queued message is still delivered.
+
 ## Test
 
 No automated tests yet. Manually verify it's up:
 
 ```
 curl http://localhost:7034/health   # -> OK
+curl http://localhost:7034/alerts   # -> [] until ward-service reports a failure
 ```
 
 To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
